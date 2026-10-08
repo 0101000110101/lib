@@ -7,7 +7,7 @@ Everything lives in **`ui_library.lua`**. It returns one table, `library`.
 
 ```lua
 local library = loadstring(readfile("ui_library.lua"))()
--- or: loadstring(game:HttpGet("https://raw.githubusercontent.com/YOU/REPO/main/ui_library.lua"))()
+-- or: loadstring(game:HttpGet("https://raw.githubusercontent.com/0101000110101/lib/refs/heads/main/ui_library.lua"))()
 ```
 
 Requires an executor with `cloneref`, `writefile` / `readfile` / `listfiles` / `makefolder` / `isfile`.
@@ -20,7 +20,7 @@ but everything else works.
 
 ```lua
 local library = loadstring(readfile("ui_library.lua"))()
-library.directory = "mymenu"                       -- folder for configs (optional)
+library:set_directory("mymenu")                    -- folder for configs (optional)
 
 local loader = library:loader({ title = "My Script", status = "starting..." })
 
@@ -65,7 +65,7 @@ then it fades out. It uses the same frames, theme colors and font as the window,
 
 | Method | What it does |
 |---|---|
-| `loader.run(steps, on_done?)` | Runs `{ { name = "...", callback = fn, delay = seconds? }, ... }` in order, gliding the bar through each step |
+| `loader.run(steps, on_done?, on_error?)` | Runs `{ { name = "...", callback = fn, delay = seconds? }, ... }` in order, gliding the bar through each step. `on_error(step_name, err)` fires if a step fails |
 | `loader.set_progress(fraction, text?)` | Moves the bar target (0 to 1) and optionally changes the status text |
 | `loader.set_status(text, static?)` | Changes the status text (`static = true` turns the dots off) |
 | `loader.finish(callback?)` | Fills the bar, then fades out. `callback` fires as the fade **starts**, so a menu can fade in over it |
@@ -172,7 +172,8 @@ library:load_config(readfile(library.directory .. "/configs/name.cfg"))
 ```
 
 Everything created with a flag is saved and restored. Files go in `<library.directory>/configs`
-(default directory: `uilib`).
+(default directory: `uilib`). Change it with `library:set_directory("name")`, which also creates the folders;
+setting `library.directory` directly will not.
 
 ---
 
@@ -235,4 +236,4 @@ end
   If something errors, the console message and line number will point to the cause.
 * `visible = options.visible or true` in the element constructors is always true.
 * No UI-scale or per-element text-size option: dropdown popups live outside the window and would misalign.
-* `library.directory` defaults to `uilib`; set it before saving configs.
+* `library.directory` defaults to `uilib`; use `library:set_directory(name)` to change it.
