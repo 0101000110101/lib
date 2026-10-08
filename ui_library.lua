@@ -1,18 +1,23 @@
 --[[
-    ui library  (extracted + cleaned up from a larger script)
+    ui library  -  windows, tabs, elements, theming, configs and a loading screen
 
-    Usage:
-        local library = loadstring(readfile("ui_library.lua"))()   -- or paste inline
-        local window  = library:window({ name = "my menu" })
-        local tab     = window:tab({ name = "main" })
-        local column  = tab:column()
-        local section = column:section({ name = "stuff" })
-        section:toggle({ name = "enabled", flag = "enabled", callback = function(v) print(v) end })
-        tab.open_tab()
+    Quick start:
+        local library = loadstring(readfile("ui_library.lua"))()      -- or game:HttpGet(url)
 
-    See README.md and example.lua for the full API.
+        local loader = library:loader({ title = "My Script" })        -- optional loading screen
+        loader.run({
+            { name = "building menu", callback = function()
+                local window  = library:window({ name = "My Script" })
+                local tab     = window:tab({ name = "main" })
+                local section = tab:column():section({ name = "stuff" })
+                section:toggle({ name = "enabled", flag = "enabled" })
+                tab.open_tab()
+            end },
+        })
+
+    Read values with library.flags["flag_name"]. See README.md for the full API.
     Requires an executor environment: cloneref, writefile/readfile/listfiles/makefolder,
-    getcustomasset, (optional) gethui, Drawing.
+    getcustomasset (optional), gethui (optional).
 ]]
 
 -- // services
@@ -5023,6 +5028,231 @@ function library:playerlist(options)
     cfg.labels.uid = self:label({name = "User Id: ??"})
 
     return setmetatable(cfg, library)
+end
+
+-- // loading screen
+-- local loader = library:loader({ title = "Custom Hub", status = "starting..." })
+-- loader.set_progress(0.5, "doing something")   -- fraction 0-1, optional status text
+-- loader.set_status("text")
+-- loader.finish(function() ... end)              -- fills the bar, fades out, destroys, then calls back
+-- loader.run({ { name = "step", callback = fn }, ... }, on_done)   -- runs steps in order with progress
+-- loader.destroy()
+function library:loader(options)
+    options = options or {}
+
+    local cfg = {
+        title = options.title or "loading",
+        size = options.size or dim2(0, 320, 0, 92),
+        progress = 0,
+        destroyed = false,
+    }
+
+    local sgui = library:create("ScreenGui", {
+        Enabled = true,
+        Parent = nil,
+        Name = "",
+        DisplayOrder = 100,
+        IgnoreGuiInset = true,
+    })
+    parentUI(sgui)
+
+    local holder = library:create("CanvasGroup", {
+        Parent = sgui,
+        Name = "",
+        AnchorPoint = vec2(0.5, 0.5),
+        Position = dim2(0.5, 0, 0.5, 0),
+        Size = cfg.size,
+        BorderSizePixel = 0,
+        GroupTransparency = 1,
+        BackgroundColor3 = themes.preset.outline,
+    })
+    library:apply_theme(holder, "outline", "BackgroundColor3")
+
+    local inline = library:create("Frame", {
+        Parent = holder,
+        Name = "",
+        Position = dim2(0, 1, 0, 1),
+        Size = dim2(1, -2, 1, -2),
+        BorderSizePixel = 0,
+        BackgroundColor3 = themes.preset.accent,
+    })
+    library:apply_theme(inline, "accent", "BackgroundColor3")
+
+    local body = library:create("Frame", {
+        Parent = inline,
+        Name = "",
+        Position = dim2(0, 1, 0, 1),
+        Size = dim2(1, -2, 1, -2),
+        BorderSizePixel = 0,
+        BackgroundColor3 = rgb(255, 255, 255),
+    })
+
+    local gradient = library:create("UIGradient", {
+        Parent = body,
+        Name = "",
+        Rotation = 90,
+        Color = rgbseq{
+            rgbkey(0, themes.preset.high_contrast),
+            rgbkey(1, themes.preset.low_contrast),
+        },
+    })
+    library:apply_theme(gradient, "contrast", "Color")
+
+    local title = library:create("TextLabel", {
+        Parent = body,
+        Name = "",
+        FontFace = library.font,
+        Text = cfg.title,
+        TextColor3 = themes.preset.accent,
+        TextSize = 14,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Position = dim2(0, 10, 0, 8),
+        Size = dim2(1, -20, 0, 16),
+    })
+    library:apply_theme(title, "accent", "TextColor3")
+
+    local status = library:create("TextLabel", {
+        Parent = body,
+        Name = "",
+        FontFace = library.font,
+        Text = options.status or "starting...",
+        TextColor3 = themes.preset.text,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Position = dim2(0, 10, 0, 30),
+        Size = dim2(1, -70, 0, 14),
+    })
+
+    local percent = library:create("TextLabel", {
+        Parent = body,
+        Name = "",
+        FontFace = library.font,
+        Text = "0%",
+        TextColor3 = themes.preset.text,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Right,
+        AnchorPoint = vec2(1, 0),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        Position = dim2(1, -10, 0, 30),
+        Size = dim2(0, 50, 0, 14),
+    })
+
+    local track = library:create("Frame", {
+        Parent = body,
+        Name = "",
+        Position = dim2(0, 10, 1, -26),
+        Size = dim2(1, -20, 0, 14),
+        BorderSizePixel = 0,
+        BackgroundColor3 = themes.preset.outline,
+    })
+    library:apply_theme(track, "outline", "BackgroundColor3")
+
+    local track_inline = library:create("Frame", {
+        Parent = track,
+        Name = "",
+        Position = dim2(0, 1, 0, 1),
+        Size = dim2(1, -2, 1, -2),
+        BorderSizePixel = 0,
+        BackgroundColor3 = themes.preset.inline,
+    })
+    library:apply_theme(track_inline, "inline", "BackgroundColor3")
+
+    local fill = library:create("Frame", {
+        Parent = track_inline,
+        Name = "",
+        Size = dim2(0, 0, 1, 0),
+        BorderSizePixel = 0,
+        BackgroundColor3 = themes.preset.accent,
+    })
+    library:apply_theme(fill, "accent", "BackgroundColor3")
+
+    library:create("UIGradient", {
+        Parent = fill,
+        Name = "",
+        Rotation = 90,
+        Color = rgbseq{ rgbkey(0, rgb(255, 255, 255)), rgbkey(1, rgb(165, 165, 165)) },
+    })
+
+    tween_service:Create(holder, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { GroupTransparency = 0 }):Play()
+
+    -- // methods
+    function cfg.set_status(text)
+        if not cfg.destroyed then status.Text = tostring(text) end
+    end
+
+    function cfg.set_progress(fraction, text)
+        if cfg.destroyed then return end
+
+        fraction = clamp(fraction or 0, 0, 1)
+        cfg.progress = fraction
+        percent.Text = floor(fraction * 100) .. "%"
+
+        tween_service:Create(fill, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Size = dim2(fraction, 0, 1, 0)
+        }):Play()
+
+        if text then cfg.set_status(text) end
+    end
+
+    function cfg.destroy()
+        if cfg.destroyed then return end
+        cfg.destroyed = true
+
+        local index = find(library.guis, sgui)
+        if index then remove(library.guis, index) end
+
+        sgui:Destroy()
+    end
+
+    function cfg.finish(callback)
+        cfg.set_progress(1, options.done_text or "done")
+
+        task.delay(options.hold or 0.45, function()
+            if cfg.destroyed then return end
+
+            local fade = tween_service:Create(holder, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { GroupTransparency = 1 })
+            fade:Play()
+            fade.Completed:Wait()
+
+            cfg.destroy()
+            if callback then task.spawn(callback) end
+        end)
+    end
+
+    -- steps: { { name = "text", callback = function() end }, ... }
+    -- a failing step shows its error, then the loader closes (set stop_on_error = false to keep going)
+    function cfg.run(steps, on_done)
+        task.spawn(function()
+            for index, step in next, steps do
+                cfg.set_progress((index - 1) / #steps, step.name)
+
+                local ok, err = pcall(step.callback or function() end)
+
+                if not ok then
+                    warn("[loader] '" .. tostring(step.name) .. "' failed: " .. tostring(err))
+
+                    if options.stop_on_error ~= false then
+                        cfg.set_status("failed: " .. tostring(step.name))
+                        task.wait(2.5)
+                        cfg.destroy()
+                        return
+                    end
+                end
+
+                task.wait(step.delay or 0.12)
+            end
+
+            cfg.finish(on_done)
+        end)
+    end
+
+    return cfg
 end
 
 -- // appearance panel: library:theme_editor(section, window)
