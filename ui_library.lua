@@ -742,6 +742,38 @@ function library:tool_tip(options)
     return cfg
 end 
 
+-- // fade helpers (used by window.fade_in / window.fade_out)
+local fade_props = {
+    Frame = { "BackgroundTransparency" },
+    ScrollingFrame = { "BackgroundTransparency", "ScrollBarImageTransparency" },
+    TextLabel = { "BackgroundTransparency", "TextTransparency" },
+    TextButton = { "BackgroundTransparency", "TextTransparency" },
+    TextBox = { "BackgroundTransparency", "TextTransparency" },
+    ImageLabel = { "BackgroundTransparency", "ImageTransparency" },
+    ImageButton = { "BackgroundTransparency", "ImageTransparency" },
+    UIStroke = { "Transparency" },
+}
+
+local function fade_snapshot(root)
+    local list = {}
+    local objects = root:GetDescendants()
+    objects[#objects + 1] = root
+
+    for _, object in next, objects do
+        local props = fade_props[object.ClassName]
+
+        if props then
+            local saved = {}
+            for _, prop in next, props do
+                saved[prop] = object[prop]
+            end
+            list[#list + 1] = { object = object, saved = saved }
+        end
+    end
+
+    return list
+end
+
 function library:panel(options) 
     local cfg = {
         name = options.text or options.name or "Window", 
@@ -1472,6 +1504,74 @@ function library:window(properties)
         local h = clamp(height or frame.Size.Y.Offset, min_size.y, camera.ViewportSize.Y)
 
         frame.Size = dim2(0, w, 0, h)
+    end
+
+    window.screen_gui = path
+    window.fading = false
+
+    -- fades the whole menu in (the menu can be hidden first with window.set_menu_visibility(false))
+    function window.fade_in(duration)
+        if window.fading then return end
+        window.fading = true
+        duration = duration or 0.5
+
+        local snapshot = fade_snapshot(path)
+
+        for _, item in next, snapshot do
+            for prop in next, item.saved do
+                item.object[prop] = 1
+            end
+        end
+
+        window.set_menu_visibility(true)
+
+        local info = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        for _, item in next, snapshot do
+            tween_service:Create(item.object, info, item.saved):Play()
+        end
+
+        task.delay(duration + 0.05, function() window.fading = false end)
+    end
+
+    -- fades the menu out, then hides it (values are restored so it can be shown again)
+    function window.fade_out(duration, callback)
+        if window.fading then return end
+        window.fading = true
+        duration = duration or 0.4
+
+        local snapshot = fade_snapshot(path)
+        local info = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+
+        for _, item in next, snapshot do
+            local goal = {}
+            for prop in next, item.saved do
+                goal[prop] = 1
+            end
+            tween_service:Create(item.object, info, goal):Play()
+        end
+
+        task.delay(duration + 0.05, function()
+            window.set_menu_visibility(false)
+
+            for _, item in next, snapshot do
+                for prop, value in next, item.saved do
+                    item.object[prop] = value
+                end
+            end
+
+            window.fading = false
+            if callback then callback() end
+        end)
+    end
+
+    function window.toggle_fade(duration)
+        if window.fading then return end
+
+        if path.Enabled then
+            window.fade_out(duration)
+        else
+            window.fade_in(duration)
+        end
     end
 
     function window.center()
@@ -5031,18 +5131,17 @@ function library:playerlist(options)
 end
 
 -- // loading screen
--- local loader = library:loader({ title = "Custom Hub", status = "starting..." })
--- loader.set_progress(0.5, "doing something")   -- fraction 0-1, optional status text
--- loader.set_status("text")
--- loader.finish(function() ... end)              -- fills the bar, fades out, destroys, then calls back
--- loader.run({ { name = "step", callback = fn }, ... }, on_done)   -- runs steps in order with progress
+-- local loader = library:loader({ title = "Custom Hub", status = "starting", duration = 3 })
+-- loader.run({ { name = "step", callback = fn }, ... }, on_done)   -- animated bar, fades in + out
+-- loader.set_progress(fraction, text?)  loader.set_status(text, static?)
+-- loader.finish(callback?)   -- bar fills, then the loader starts fading out and callback fires
 -- loader.destroy()
 function library:loader(options)
     options = options or {}
 
     local cfg = {
         title = options.title or "loading",
-        size = options.size or dim2(0, 320, 0, 92),
+        size = options.size or dim2(0, 340, 0, 96),
         progress = 0,
         destroyed = false,
     }
@@ -5060,7 +5159,7 @@ function library:loader(options)
         Parent = sgui,
         Name = "",
         AnchorPoint = vec2(0.5, 0.5),
-        Position = dim2(0.5, 0, 0.5, 0),
+        Position = dim2(0.5, 0, 0.5, 14),
         Size = cfg.size,
         BorderSizePixel = 0,
         GroupTransparency = 1,
@@ -5117,14 +5216,14 @@ function library:loader(options)
         Parent = body,
         Name = "",
         FontFace = library.font,
-        Text = options.status or "starting...",
+        Text = "",
         TextColor3 = themes.preset.text,
         TextSize = 12,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd,
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
-        Position = dim2(0, 10, 0, 30),
+        Position = dim2(0, 10, 0, 32),
         Size = dim2(1, -70, 0, 14),
     })
 
@@ -5139,15 +5238,15 @@ function library:loader(options)
         AnchorPoint = vec2(1, 0),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
-        Position = dim2(1, -10, 0, 30),
+        Position = dim2(1, -10, 0, 32),
         Size = dim2(0, 50, 0, 14),
     })
 
     local track = library:create("Frame", {
         Parent = body,
         Name = "",
-        Position = dim2(0, 10, 1, -26),
-        Size = dim2(1, -20, 0, 14),
+        Position = dim2(0, 10, 1, -28),
+        Size = dim2(1, -20, 0, 16),
         BorderSizePixel = 0,
         BackgroundColor3 = themes.preset.outline,
     })
@@ -5168,6 +5267,7 @@ function library:loader(options)
         Name = "",
         Size = dim2(0, 0, 1, 0),
         BorderSizePixel = 0,
+        ClipsDescendants = true,
         BackgroundColor3 = themes.preset.accent,
     })
     library:apply_theme(fill, "accent", "BackgroundColor3")
@@ -5179,23 +5279,68 @@ function library:loader(options)
         Color = rgbseq{ rgbkey(0, rgb(255, 255, 255)), rgbkey(1, rgb(165, 165, 165)) },
     })
 
-    tween_service:Create(holder, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { GroupTransparency = 0 }):Play()
+    -- a soft highlight that keeps sweeping across the filled part of the bar
+    local shine = library:create("Frame", {
+        Parent = fill,
+        Name = "",
+        Size = dim2(0, 30, 1, 0),
+        Position = dim2(-1, 0, 0, 0),
+        BorderSizePixel = 0,
+        BackgroundColor3 = rgb(255, 255, 255),
+    })
+
+    library:create("UIGradient", {
+        Parent = shine,
+        Name = "",
+        Transparency = numseq{ numkey(0, 1), numkey(0.5, 0.6), numkey(1, 1) },
+    })
+
+    -- // animation state
+    local target, shown, clock = 0, 0, 0
+    local base_text = (tostring(options.status or "starting"):gsub("%.+$", ""))
+    local animate_status = true
+
+    local connection = run.Heartbeat:Connect(function(dt)
+        clock += dt
+
+        -- ease toward the target, with a minimum speed so it always arrives
+        if shown < target then
+            shown = min(target, shown + max((target - shown) * clamp(dt * 4, 0, 1), dt * 0.04))
+        end
+
+        fill.Size = dim2(shown, 0, 1, 0)
+        percent.Text = floor(shown * 100 + 0.5) .. "%"
+        shine.Position = dim2(((clock * 0.8) % 1.6) - 0.3, 0, 0, 0)
+
+        if animate_status then
+            status.Text = base_text .. string.rep(".", floor(clock * 2.5) % 4)
+        end
+    end)
+
+    -- fade + slide in
+    tween_service:Create(holder, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        GroupTransparency = 0,
+        Position = dim2(0.5, 0, 0.5, 0),
+    }):Play()
 
     -- // methods
-    function cfg.set_status(text)
-        if not cfg.destroyed then status.Text = tostring(text) end
+    function cfg.set_status(text, static)
+        if cfg.destroyed then return end
+
+        if static then
+            animate_status = false
+            status.Text = tostring(text)
+        else
+            animate_status = true
+            base_text = (tostring(text):gsub("%.+$", ""))
+        end
     end
 
     function cfg.set_progress(fraction, text)
         if cfg.destroyed then return end
 
-        fraction = clamp(fraction or 0, 0, 1)
-        cfg.progress = fraction
-        percent.Text = floor(fraction * 100) .. "%"
-
-        tween_service:Create(fill, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            Size = dim2(fraction, 0, 1, 0)
-        }):Play()
+        target = clamp(fraction or 0, 0, 1)
+        cfg.progress = target
 
         if text then cfg.set_status(text) end
     end
@@ -5204,48 +5349,83 @@ function library:loader(options)
         if cfg.destroyed then return end
         cfg.destroyed = true
 
+        connection:Disconnect()
+
         local index = find(library.guis, sgui)
         if index then remove(library.guis, index) end
 
         sgui:Destroy()
     end
 
+    -- fills the bar, then fades out. callback fires as the fade starts (so a menu can fade in over it)
     function cfg.finish(callback)
         cfg.set_progress(1, options.done_text or "done")
 
-        task.delay(options.hold or 0.45, function()
+        task.spawn(function()
+            local waited = 0
+            while not cfg.destroyed and shown < 0.995 and waited < 8 do
+                waited += task.wait(0.03)
+            end
+
             if cfg.destroyed then return end
 
-            local fade = tween_service:Create(holder, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { GroupTransparency = 1 })
-            fade:Play()
-            fade.Completed:Wait()
+            cfg.set_status(options.done_text or "done", true)
+            task.wait(options.hold or 0.5)
 
-            cfg.destroy()
+            if cfg.destroyed then return end
+
+            local fade = tween_service:Create(holder, TweenInfo.new(options.fade_time or 0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                GroupTransparency = 1,
+                Position = dim2(0.5, 0, 0.5, -14),
+            })
+            fade:Play()
+
             if callback then task.spawn(callback) end
+
+            fade.Completed:Wait()
+            cfg.destroy()
         end)
     end
 
-    -- steps: { { name = "text", callback = function() end }, ... }
-    -- a failing step shows its error, then the loader closes (set stop_on_error = false to keep going)
+    -- steps: { { name = "text", callback = function() end, delay = seconds? }, ... }
+    -- the whole run lasts at least options.duration seconds (default 2.5) so the bar visibly moves.
+    -- a failing step shows its error, then the loader closes (stop_on_error = false keeps going)
     function cfg.run(steps, on_done)
         task.spawn(function()
-            for index, step in next, steps do
-                cfg.set_progress((index - 1) / #steps, step.name)
+            local count = max(#steps, 1)
+            local min_step = (options.duration or 2.5) / count
 
+            for index, step in next, steps do
+                local from, to = (index - 1) / count, index / count
+
+                cfg.set_progress(from + (to - from) * 0.35, step.name)
+
+                local started = os.clock()
                 local ok, err = pcall(step.callback or function() end)
 
                 if not ok then
                     warn("[loader] '" .. tostring(step.name) .. "' failed: " .. tostring(err))
 
                     if options.stop_on_error ~= false then
-                        cfg.set_status("failed: " .. tostring(step.name))
+                        cfg.set_status("failed: " .. tostring(step.name), true)
                         task.wait(2.5)
                         cfg.destroy()
                         return
                     end
                 end
 
-                task.wait(step.delay or 0.12)
+                -- glide to the end of this step over whatever time is left in its slot
+                local ramp = max(step.delay or 0, min_step - (os.clock() - started))
+                local ramp_start = os.clock()
+                local alpha = 0
+
+                repeat
+                    alpha = clamp((os.clock() - ramp_start) / max(ramp, 0.001), 0, 1)
+                    cfg.set_progress(from + (to - from) * (0.35 + 0.65 * alpha))
+                    task.wait()
+                until alpha >= 1 or cfg.destroyed
+
+                if cfg.destroyed then return end
             end
 
             cfg.finish(on_done)
