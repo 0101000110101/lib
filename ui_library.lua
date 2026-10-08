@@ -237,12 +237,29 @@ library.themes = themes
 library.keys = keys
 
 -- // folders + font
-if has_fs then
+-- creates <directory> and its sub folders if they do not exist yet
+function library:ensure_folders()
+    if not has_fs then return end
+
+    local function make(path)
+        pcall(function()
+            if not isfolder(path) then makefolder(path) end
+        end)
+    end
+
+    make(library.directory)
     for _, path in next, library.folders do
-        pcall(makefolder, library.directory)
-        pcall(makefolder, library.directory .. path)
+        make(library.directory .. path)
     end
 end
+
+-- use this instead of assigning library.directory directly (it also creates the folders)
+function library:set_directory(directory)
+    library.directory = directory
+    library:ensure_folders()
+end
+
+library:ensure_folders()
 
 local fallback_font = Font.new("rbxasset://fonts/families/RobotoMono.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
 library.font = fallback_font
@@ -430,11 +447,19 @@ function library:config_list_update()
     local config_holder = library.config_holder
     if not config_holder or not has_fs then return end 
 
+    library:ensure_folders()
+
     local list = {}
 
-    for idx, file in next, listfiles(library.directory .. "/configs") do
-        local name = file:gsub(library.directory .. "/configs\\", ""):gsub(".cfg", ""):gsub(library.directory .. "\\configs\\", "")
-        list[#list + 1] = name
+    local ok, files = pcall(listfiles, library.directory .. "/configs")
+    if ok and type(files) == "table" then
+        for _, file in next, files do
+            local name = tostring(file):match("([^/\\]+)$") or tostring(file)
+            name = name:gsub("%.cfg$", "")
+            if name ~= "" then
+                list[#list + 1] = name
+            end
+        end
     end
     
     config_holder.refresh_options(list)
@@ -5390,7 +5415,7 @@ function library:loader(options)
     -- steps: { { name = "text", callback = function() end, delay = seconds? }, ... }
     -- the whole run lasts at least options.duration seconds (default 2.5) so the bar visibly moves.
     -- a failing step shows its error, then the loader closes (stop_on_error = false keeps going)
-    function cfg.run(steps, on_done)
+    function cfg.run(steps, on_done, on_error)
         task.spawn(function()
             local count = max(#steps, 1)
             local min_step = (options.duration or 2.5) / count
@@ -5405,6 +5430,8 @@ function library:loader(options)
 
                 if not ok then
                     warn("[loader] '" .. tostring(step.name) .. "' failed: " .. tostring(err))
+
+                    if on_error then task.spawn(on_error, step.name, err) end
 
                     if options.stop_on_error ~= false then
                         cfg.set_status("failed: " .. tostring(step.name), true)
